@@ -132,7 +132,13 @@ AS $$
     sentence_embeddings.text,
     1 - (sentence_embeddings.embedding <=> query_embedding) as similarity
   FROM sentence_embeddings
-  WHERE speaker_filter IS NULL OR sentence_embeddings.speaker = speaker_filter
+  WHERE speaker_filter IS NULL OR regexp_replace(
+    regexp_replace(
+      regexp_replace(replace(btrim(sentence_embeddings.speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
+      '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
+    ),
+    '[[:space:]]+', ' ', 'g'
+  ) = speaker_filter
   ORDER BY sentence_embeddings.embedding <=> query_embedding
   LIMIT match_count;
 $$;
@@ -142,11 +148,17 @@ CREATE OR REPLACE FUNCTION public.get_speakers()
 RETURNS TABLE (speaker text)
 LANGUAGE sql STABLE
 AS $$
-  SELECT DISTINCT sentence_embeddings.speaker
+  SELECT DISTINCT regexp_replace(
+    regexp_replace(
+      regexp_replace(replace(btrim(sentence_embeddings.speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
+      '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
+    ),
+    '[[:space:]]+', ' ', 'g'
+  ) AS speaker
   FROM sentence_embeddings
   WHERE sentence_embeddings.speaker IS NOT NULL
     AND btrim(sentence_embeddings.speaker) <> ''
-  ORDER BY sentence_embeddings.speaker;
+  ORDER BY speaker;
 $$;
 """
 

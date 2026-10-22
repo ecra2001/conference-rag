@@ -310,7 +310,7 @@ async function loadSpeakerOptions() {
         for (const speaker of speakers) {
             const option = document.createElement('option');
             option.value = speaker;
-            option.textContent = speaker.replace(/^By\s+/i, '').trim();
+            option.textContent = speaker;
             speakerFilterInput.appendChild(option);
         }
         speakerFilterInput.disabled = false;
@@ -464,7 +464,10 @@ async function keywordSearch() {
             .from('sentence_embeddings')
             .select('text, talk_id, title, speaker, url')
             .ilike('text', `%${query}%`);
-        if (selectedSpeaker()) search = search.eq('speaker', selectedSpeaker());
+        if (selectedSpeaker()) {
+            const speakerPattern = selectedSpeaker().trim().split(/\s+/).join('%');
+            search = search.ilike('speaker', `%${speakerPattern}%`);
+        }
         const { data, error } = await search.limit(20);
 
         if (error) throw new Error(`Search failed: ${error.message}`);
