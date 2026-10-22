@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS sentence_embeddings (
 CREATE INDEX IF NOT EXISTS sentence_embeddings_talk_id_idx 
 ON sentence_embeddings(talk_id);
 
+-- Keep vector search fast over the full imported corpus and speaker filtering fast
+-- when a speaker is selected. The normalized-speaker expression matches the
+-- normalization used by match_sentences() and get_speakers().
+CREATE INDEX IF NOT EXISTS sentence_embeddings_embedding_ivfflat_idx
+ON sentence_embeddings USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+CREATE INDEX IF NOT EXISTS sentence_embeddings_normalized_speaker_idx
+ON sentence_embeddings ((regexp_replace(
+    regexp_replace(
+      regexp_replace(replace(btrim(speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
+      '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
+    ),
+    '[[:space:]]+', ' ', 'g'
+  )))
+WHERE speaker IS NOT NULL;
+
 -- Enable Row Level Security
 ALTER TABLE sentence_embeddings ENABLE ROW LEVEL SECURITY;
 
@@ -121,26 +138,34 @@ RETURNS TABLE (
   text text,
   similarity float
 )
-LANGUAGE sql STABLE
+LANGUAGE plpgsql STABLE
 AS $$
-  SELECT
-    sentence_embeddings.id,
-    sentence_embeddings.talk_id,
-    sentence_embeddings.title,
-    sentence_embeddings.speaker,
-    sentence_embeddings.url,
-    sentence_embeddings.text,
-    1 - (sentence_embeddings.embedding <=> query_embedding) as similarity
-  FROM sentence_embeddings
-  WHERE speaker_filter IS NULL OR regexp_replace(
-    regexp_replace(
-      regexp_replace(replace(btrim(sentence_embeddings.speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
-      '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
-    ),
-    '[[:space:]]+', ' ', 'g'
-  ) = speaker_filter
-  ORDER BY sentence_embeddings.embedding <=> query_embedding
-  LIMIT match_count;
+BEGIN
+  IF speaker_filter IS NULL OR btrim(speaker_filter) = '' THEN
+    RETURN QUERY
+    SELECT
+      se.id, se.talk_id, se.title, se.speaker, se.url, se.text,
+      1 - (se.embedding <=> query_embedding) as similarity
+    FROM sentence_embeddings AS se
+    ORDER BY se.embedding <=> query_embedding
+    LIMIT match_count;
+  ELSE
+    RETURN QUERY
+    SELECT
+      se.id, se.talk_id, se.title, se.speaker, se.url, se.text,
+      1 - (se.embedding <=> query_embedding) as similarity
+    FROM sentence_embeddings AS se
+    WHERE regexp_replace(
+      regexp_replace(
+        regexp_replace(replace(btrim(se.speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
+        '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
+      ),
+      '[[:space:]]+', ' ', 'g'
+    ) = speaker_filter
+    ORDER BY se.embedding <=> query_embedding
+    LIMIT match_count;
+  END IF;
+END;
 $$;
 
 -- Return one row per speaker for the shared search filter.

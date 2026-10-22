@@ -303,8 +303,9 @@ async function loadSpeakerOptions() {
         if (error) throw error;
 
         const speakers = [...new Set((data || [])
-            .map(row => row.speaker)
-            .filter(speaker => typeof speaker === 'string' && speaker.trim()))];
+            .map(row => normalizeSpeakerName(row.speaker))
+            .filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b));
 
         speakerFilterInput.innerHTML = '<option value="">All speakers</option>';
         for (const speaker of speakers) {
@@ -326,6 +327,16 @@ async function loadSpeakerOptions() {
     } finally {
         speakerOptionsLoading = false;
     }
+}
+
+function normalizeSpeakerName(speaker) {
+    if (typeof speaker !== 'string') return '';
+    return speaker
+        .replace(/\u00a0/g, ' ')
+        .trim()
+        .replace(/^(?:presented\s+by|by)\s+/i, '')
+        .replace(/^(?:president|elder|sister|brother|bishop)\s+/i, '')
+        .replace(/\s+/g, ' ');
 }
 
 function selectedSpeaker() {
