@@ -101,16 +101,23 @@ ON page_views FOR SELECT
 TO anon, authenticated
 USING (true);
 
+-- Recreate the function because PostgreSQL cannot change a function's
+-- returned columns with CREATE OR REPLACE FUNCTION.
+DROP FUNCTION IF EXISTS public.match_sentences(vector, int);
+DROP FUNCTION IF EXISTS public.match_sentences(vector, int, text);
+
 -- Create function for similarity search
-CREATE OR REPLACE FUNCTION match_sentences(
+CREATE OR REPLACE FUNCTION public.match_sentences(
   query_embedding vector(1536),
-  match_count int DEFAULT 20
+  match_count int DEFAULT 20,
+  speaker_filter text DEFAULT NULL
 )
 RETURNS TABLE (
   id uuid,
   talk_id uuid,
   title text,
   speaker text,
+  url text,
   text text,
   similarity float
 )
@@ -121,11 +128,25 @@ AS $$
     sentence_embeddings.talk_id,
     sentence_embeddings.title,
     sentence_embeddings.speaker,
+    sentence_embeddings.url,
     sentence_embeddings.text,
     1 - (sentence_embeddings.embedding <=> query_embedding) as similarity
   FROM sentence_embeddings
+  WHERE speaker_filter IS NULL OR sentence_embeddings.speaker = speaker_filter
   ORDER BY sentence_embeddings.embedding <=> query_embedding
   LIMIT match_count;
+$$;
+
+-- Return one row per speaker for the shared search filter.
+CREATE OR REPLACE FUNCTION public.get_speakers()
+RETURNS TABLE (speaker text)
+LANGUAGE sql STABLE
+AS $$
+  SELECT DISTINCT sentence_embeddings.speaker
+  FROM sentence_embeddings
+  WHERE sentence_embeddings.speaker IS NOT NULL
+    AND btrim(sentence_embeddings.speaker) <> ''
+  ORDER BY sentence_embeddings.speaker;
 $$;
 """
 

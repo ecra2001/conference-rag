@@ -83,6 +83,8 @@ const ragInput = document.getElementById('rag-input');
 const ragBtn = document.getElementById('rag-btn');
 const ragResults = document.getElementById('rag-results');
 const ragStatus = document.getElementById('rag-status');
+const speakerFilterInput = document.getElementById('speaker-filter');
+const speakerFilterStatus = document.getElementById('speaker-filter-status');
 
 // ============================================
 // SETUP BANNER DETECTION
@@ -286,6 +288,48 @@ function showApp(user) {
     if (userEmailSpan) userEmailSpan.textContent = user.email;
     // Check search readiness when user logs in
     checkSearchReadiness();
+    loadSpeakerOptions();
+}
+
+let speakerOptionsLoaded = false;
+let speakerOptionsLoading = false;
+
+async function loadSpeakerOptions() {
+    if (!supabaseClient || !speakerFilterInput || speakerOptionsLoaded || speakerOptionsLoading) return;
+    speakerOptionsLoading = true;
+
+    try {
+        const { data, error } = await supabaseClient.rpc('get_speakers');
+        if (error) throw error;
+
+        const speakers = [...new Set((data || [])
+            .map(row => row.speaker)
+            .filter(speaker => typeof speaker === 'string' && speaker.trim()))];
+
+        speakerFilterInput.innerHTML = '<option value="">All speakers</option>';
+        for (const speaker of speakers) {
+            const option = document.createElement('option');
+            option.value = speaker;
+            option.textContent = speaker.replace(/^By\s+/i, '').trim();
+            speakerFilterInput.appendChild(option);
+        }
+        speakerFilterInput.disabled = false;
+        if (speakerFilterStatus) {
+            speakerFilterStatus.textContent = speakers.length
+                ? 'Choose a speaker to limit keyword, semantic, and AI answers.'
+                : 'No speakers were found in the imported talks.';
+        }
+        speakerOptionsLoaded = true;
+    } catch (error) {
+        console.error('Could not load speaker options:', error.message);
+        if (speakerFilterStatus) speakerFilterStatus.textContent = 'Could not load speakers. Refresh the page to try again.';
+    } finally {
+        speakerOptionsLoading = false;
+    }
+}
+
+function selectedSpeaker() {
+    return speakerFilterInput ? speakerFilterInput.value : '';
 }
 
 function showMessage(text, type) {
@@ -416,11 +460,12 @@ async function keywordSearch() {
 
     try {
         // Search sentence_embeddings that contain the keyword (case-insensitive)
-        const { data, error } = await supabaseClient
+        let search = supabaseClient
             .from('sentence_embeddings')
             .select('text, talk_id, title, speaker, url')
-            .ilike('text', `%${query}%`)
-            .limit(20);
+            .ilike('text', `%${query}%`);
+        if (selectedSpeaker()) search = search.eq('speaker', selectedSpeaker());
+        const { data, error } = await search.limit(20);
 
         if (error) throw new Error(`Search failed: ${error.message}`);
 
@@ -483,7 +528,7 @@ async function semanticSearch() {
         const embedding = await getEmbedding(query);
 
         // Step 2: Search for similar sentences
-        const results = await searchSentences(embedding);
+        const results = await searchSentences(embedding, selectedSpeaker());
 
         if (!results || results.length === 0) {
             showResults('semantic', '<div class="no-results">No similar content found. Try a different query.</div>');
@@ -531,7 +576,12 @@ async function askQuestion() {
         const embedding = await getEmbedding(question);
 
         // Step 2: Search for similar sentences
-        const results = await searchSentences(embedding);
+        const results = await searchSentences(embedding, selectedSpeaker());
+
+        if (!results || results.length === 0) {
+            showResults('rag', '<div class="no-results">No matching talks found for this question and speaker. Try another question or choose All speakers.</div>');
+            return;
+        }
 
         // Step 3: Group by talk (with similarity scores and URLs)
         const topTalks = groupByTalk(results);
@@ -597,12 +647,13 @@ async function getEmbedding(text) {
 }
 
 // Search sentences using vector similarity
-async function searchSentences(embedding) {
+async function searchSentences(embedding, speaker = '') {
     if (!supabaseClient) throw new Error('Supabase not configured');
 
     const { data, error } = await supabaseClient.rpc('match_sentences', {
         query_embedding: embedding,
-        match_count: 20
+        match_count: 20,
+        speaker_filter: speaker || null
     });
 
     if (error) throw new Error(`Database search failed: ${error.message}`);
@@ -750,6 +801,12 @@ if (semanticInput) semanticInput.addEventListener('keypress', (e) => {
 if (ragBtn) ragBtn.addEventListener('click', askQuestion);
 if (ragInput) ragInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') askQuestion();
+});
+
+if (speakerFilterInput) speakerFilterInput.addEventListener('change', () => {
+    [keywordResults, semanticResults, ragResults].forEach(results => {
+        if (results) results.innerHTML = '';
+    });
 });
 
 // ============================================
