@@ -185,6 +185,45 @@ AS $$
     AND btrim(sentence_embeddings.speaker) <> ''
   ORDER BY speaker;
 $$;
+
+-- Keyword search uses the same normalized speaker matching as vector search.
+CREATE OR REPLACE FUNCTION public.search_sentences(
+  keyword text,
+  match_count int DEFAULT 20,
+  speaker_filter text DEFAULT NULL
+)
+RETURNS TABLE (
+  text text,
+  talk_id uuid,
+  title text,
+  speaker text,
+  url text
+)
+LANGUAGE plpgsql STABLE
+AS $$
+BEGIN
+  IF speaker_filter IS NULL OR btrim(speaker_filter) = '' THEN
+    RETURN QUERY
+    SELECT se.text, se.talk_id, se.title, se.speaker, se.url
+    FROM public.sentence_embeddings AS se
+    WHERE se.text ILIKE '%' || keyword || '%'
+    LIMIT match_count;
+  ELSE
+    RETURN QUERY
+    SELECT se.text, se.talk_id, se.title, se.speaker, se.url
+    FROM public.sentence_embeddings AS se
+    WHERE se.text ILIKE '%' || keyword || '%'
+      AND regexp_replace(
+        regexp_replace(
+          regexp_replace(replace(btrim(se.speaker), chr(160), ' '), '^(presented by|by)[[:space:]]+', '', 'i'),
+          '^(president|elder|sister|brother|bishop)[[:space:]]+', '', 'i'
+        ),
+        '[[:space:]]+', ' ', 'g'
+      ) = speaker_filter
+    LIMIT match_count;
+  END IF;
+END;
+$$;
 """
 
     url = f"https://api.supabase.com/v1/projects/{SUPABASE_PROJECT_REF}/database/query"

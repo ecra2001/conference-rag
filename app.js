@@ -470,16 +470,11 @@ async function keywordSearch() {
     clearResults('keyword');
 
     try {
-        // Search sentence_embeddings that contain the keyword (case-insensitive)
-        let search = supabaseClient
-            .from('sentence_embeddings')
-            .select('text, talk_id, title, speaker, url')
-            .ilike('text', `%${query}%`);
-        if (selectedSpeaker()) {
-            const speakerPattern = selectedSpeaker().trim().split(/\s+/).join('%');
-            search = search.ilike('speaker', `%${speakerPattern}%`);
-        }
-        const { data, error } = await search.limit(20);
+        const { data, error } = await supabaseClient.rpc('search_sentences', {
+            keyword: query,
+            match_count: 20,
+            speaker_filter: selectedSpeaker() || null
+        });
 
         if (error) throw new Error(`Search failed: ${error.message}`);
 
