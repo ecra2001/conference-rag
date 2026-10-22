@@ -16,7 +16,7 @@ const SUPABASE_CONFIG = {
 };
 
 // Load config.public.json and update SUPABASE_CONFIG
-fetch('config.public.json')
+fetch(`config.public.json?v=${Date.now()}`, { cache: 'no-store' })
     .then(response => {
         if (!response.ok) throw new Error('config.public.json not found');
         return response.json();
