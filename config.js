@@ -24,8 +24,10 @@ fetch('config.public.json')
     .then(config => {
         if (config.SUPABASE_URL) SUPABASE_CONFIG.url = config.SUPABASE_URL;
         if (config.SUPABASE_ANON_KEY) SUPABASE_CONFIG.anonKey = config.SUPABASE_ANON_KEY;
-        // Re-initialize now that config is loaded
-        window.dispatchEvent(new Event('config-loaded'));
+        // Let app.js attach its listener before announcing that config is ready.
+        // The fetch can complete from cache while the browser is still parsing
+        // index.html, before app.js has registered its listener.
+        setTimeout(() => window.dispatchEvent(new Event('config-loaded')), 0);
     })
     .catch(err => {
         console.warn('⚠️ Could not load config.public.json:', err.message);
